@@ -33,6 +33,7 @@ def acquisitionCapteur( capteur) :
      return lecture_capteur
 
 def flashWriteData(trame) : #on écrit trame dans fichier data
+    print ("ecriture de trame")
     ofi=open('fichier_data', 'a')
     dispo=os.getfree('/flash')# vérifie si y a de la place sur flash
     if dispo > 100:
@@ -94,47 +95,10 @@ print ('conf: ',configuration,  'LoRa: ', mode_lora,'debug: ',debug,'date: ',rtc
 t0=time.time()
 t2=time.time()
 
-while True:
-    if configuration== 'RX': # On va écouter le TX  en point à point seulement (la configuration du TX dans ce cas est forcement en RAW) et lire le RX si besoin,
-        lora = LoRa(mode=LoRa.LORA, frequency=c.LORA_FREQUENCY)
-        s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
-        s.setblocking(False)
-        trame_ch=s.recv(128)
-        if trame_ch:
-            pycom.rgbled(c.rouge_pale)
-            time.sleep(c.delai_local)
-            trame = trame_ch.decode('utf-8')                      #sinon pbs compatibilité avec binaire?
-            trame=trame.split(delimiteur)                               #on vire le delimiteur et on met les data dans une liste
-            poids_en_gr_distant_total=0
-            i=0
-            if trame[0] ==label :                                             #vérification champ 0  pour controle destinataire, mode RAW
-                v   =int(trame[1]) #tension_Batterie
-                temperature_local       =temperatureLopy(c.GAIN_local,c.OFFSET_local)            #trame [0]=label, trame [1]=  température, trame [2]=w
-                for g in trame:
-                    if i >=3:
-                        if g!='':
-                            poids_en_gr_distant_total+=float(g)
-                            print ("i ", i-2,"   g ", g, "    poids_en_gr_distant_total ", poids_en_gr_distant_total)
-                    i+=1
-                t=rtc.now()                                                      #on fait un timestamp, le temps  est initialisé dans la config
-                t0=time.time()
-                ts=''
-                for g in t:
-                    ts+=str(g)+delimiteur
-                trame_ch+=ts+'\n'                                       #on ajoute le timestamp à la trame reçue
-                flashWriteData(trame_ch)                               #on sauve la trame sur flash
-                numero_trame+=1
-            else:
-                print ("erreur transmission")
-            print(trame_ch," poids_total: ", poids_en_gr_distant_total,  " T_RX: ", temperature_local,   " N_T: ", numero_trame, "tension_Batterie : ", v, "batt_local : ",  tensionBatterie())
-        deltaT=time.time()-t0       #si pas de transmission pendant 2 fois le temps de deepsleep, on allume en rouge
-        if deltaT> c.sleep*2/1000:
-            pycom.rgbled(c.RED)
-        else:
-            pycom.rgbled(c.BLACK)
-        time.sleep(c.delai_local)
-        print (" ", deltaT, end="")
+poids_en_gr=poids_en_gr_total=moyenne=tension=trame=0
 
+while True:
+    print("boucle true")
     if c.nombre_capteurs!=0 : #On va faire la mesure sur le RX ou le TX; il y a nombre_capteurs capteurs sur le TX ou RX
     #trame=[label+delimiteur]+str(t)+delimiteur+w+{delimiteur+str(lecture_capteur[i])}*nombre_capteurs+delimiteur+"\n"; la trame RAW nécessite un "label" pour identification sans ambigüité
         adc = ADC()
@@ -192,11 +156,6 @@ while True:
         t2=time.time()
 
     if configuration=='TX': # On va émettre la trame LoRa par le TX, puis endormir le TX
-        if mode_lora=='RAW'              : # RAW (transmission la plus rapide entre TX et RX point à point sans cryptage), LoRa-MAC (which we also call Raw-LoRa)
-            lora = LoRa(mode=LoRa.LORA, frequency=c.LORA_FREQUENCY)
-            s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
-            s.setblocking(False)
-
         if mode_lora== 'APB'              : #APB (on émet en mode crypté sans recevoir d'ACK de la part du récepteur qui est le RX ou la GW) ABP stands for Authentication By Personalisation.
             print("APB Mode")
             lora = LoRa(mode=LoRa.LORAWAN, region=LoRa.EU868)
@@ -216,29 +175,25 @@ while True:
             s.setsockopt(socket.SOL_LORA, socket.SO_DR, 5)        # set the LoRaWAN data rate
             s.setblocking(True)        # make the socket blocking       # (waits for the data to be sent and for the 2 receive windows to expire)
         try:
-            s.send (trame)
+            print("emission")
+            time.sleep(c.delai_flash_mise_en_route)
+            s.send ("test") #trame
             time.sleep(c.tempo_lora_emission)
         except Exception as e:
-            if e.errno == errno.EAGAIN:
-                if debug:
-                    print('cannot send just yet, waiting...  ')
-                    time.sleep(c.delai_flash_mise_en_route)
+            print("exept")
+            #if e.errno == errno.EAGAIN:
+            if debug:
+                print('cannot send just yet, waiting...  ')
+                time.sleep(c.delai_flash_mise_en_route)
         s.setblocking(False)
         numero_trame+=1
         pycom.rgbled(c.RED)                                             # flash rouge
         time.sleep (c.delai_flash_mise_en_route)
         if debug:
             print("poids_en_gr_total", poids_en_gr_total, " tension_Batterie: ", tension, '****'," N_T: ",  numero_trame," ",  trame)
-        machine.deepsleep(c.sleep)                                     #eteint Lopy
+        #machine.deepsleep(c.sleep)                                     #eteint Lopy
 
     deltaT2=time.time()-t2 #temps écoulé depuis la dernière mesure locale
-    if configuration=='RX' and nombre_capteurs!=0 and deltaT2 >=sleep/1000:#on enregistre la mesure du RX si deltaT2 est égal à sleep
-        t=temperatureLopy(c.GAIN_local,c.OFFSET_local)                     #mesure de la température du TX***************************************************************************
-        timest = time.localtime()                                                      #on met un timestamp sur la trame
-        trame=str(timest)+delimiteur+str(t)+trame+delimiteur+"\n"
-        flashWriteData(trame)
-        print("poids_en_gr_total", poids_en_gr_total, " Température RX: ", t, '****', trame)
-        time.sleep(c.delai_local)
     wdt.feed() # feeds  watchgdog
 
 print('FIN')
