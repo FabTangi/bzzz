@@ -14,7 +14,7 @@ timeout=60000*10                                     # 60000 millisecondes font 
 delai_local=2                                              #on attend delai local SECONDES avant de lancer une mesure, doit être inférieure à timeout
 delai_flash_mise_en_route=0.02                #durée du flash de la LED
 tempo_lora_demarrage = 0                        #le temps en secondes que la carte lora soit opérationnelle
-tempo_lora_emission = 0                           #le temps en secondes que la carte lora finisse l'émission
+tempo_lora_emission = 30                           #le temps en secondes que la carte lora finisse l'émission
 delai_avant_acquisition= 0                         #on attend delai secondes avant de lancer les mesures par le HX
 
 HX_DT_1    = 'P19'   # brochage HX vers Lopy : ne pas utiliser P12 qui sert pour les reboots ni P2,#P18 a P13 sont des INPUT, LoRa utilise  P5, P6, P7 : ne pas utiliser, P16 sert pour la batterie,

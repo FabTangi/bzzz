@@ -96,11 +96,32 @@ t0=time.time()
 t2=time.time()
 
 poids_en_gr=poids_en_gr_total=moyenne=tension=trame=0
+lora = LoRa(mode=LoRa.LORAWAN, region=LoRa.EU868)
+if lora.has_joined() == False :
+    if mode_lora== 'APB'              : #APB (on émet en mode crypté sans recevoir d'ACK de la part du récepteur qui est le RX ou la GW) ABP stands for Authentication By Personalisation.
+        print("APB Mode")
+        print(trame)
+
+        lora.join(activation=LoRa.ABP, auth=(c.dev_addr,c.nwk_swkey, c.app_swkey))        # join a network using ABP (Activation By Personalization), Les clés ont été  fournies avant le joint par TTN (par ex).
+        s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)        # create a LoRa socket
+        s.setsockopt(socket.SOL_LORA, socket.SO_DR, data_rate)        # set the LoRaWAN data rate
+        #s.setblocking(True)                # make the socket blocking
+
+    if mode_lora== 'OTAA'              : #  OTAA (mode complet mais, le plus lent, avec échange entre TX et récepteur)
+
+        lora.join(activation=LoRa.OTAA, auth=(c.app_eui, c.app_key), timeout=0)        # join a network using OTAA (Over the Air Activation) needing a 'handshake' procedure to exchange the keys
+
+        while not lora.has_joined():                # wait until the module has joined the network
+            time.sleep(2.5)
+            print('Not yet joined...')
+        s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)        # create a LoRa socket
+        s.setsockopt(socket.SOL_LORA, socket.SO_DR, 5)        # set the LoRaWAN data rate
+        #s.setblocking(True)        # make the socket blocking       # (waits for the data to be sent and for the 2 receive windows to expire)
 
 while True:
     print("boucle true")
     if c.nombre_capteurs!=0 : #On va faire la mesure sur le RX ou le TX; il y a nombre_capteurs capteurs sur le TX ou RX
-    #trame=[label+delimiteur]+str(t)+delimiteur+w+{delimiteur+str(lecture_capteur[i])}*nombre_capteurs+delimiteur+"\n"; la trame RAW nécessite un "label" pour identification sans ambigüité
+    #trame=[label+delimiteur]+str(t)+delimiteur+w+{delimiteur+str(lecture_capteur[i])}*nombre_capteurs+delimiteur+"\n" #; la trame RAW nécessite un "label" pour identification sans ambigüité
         adc = ADC()
         batt = adc.channel(attn=c.attn, pin=c.pinBatt)# attenuation = 1, correspond à 3dB: gamme 0-1412 mV, pont diviseur (115k et 56k) sur expansion board V2.1A de 3.05, ADC 12 bits : 4096
         pycom.rgbled(c.BLACK)
@@ -133,6 +154,8 @@ while True:
             lecture_capteur[i-premier_capteur]=int(lecture_capteur[i-premier_capteur]/(nombre_point-2))
             poids_en_gr_total+= lecture_capteur[i-premier_capteur]
             trame+=str( lecture_capteur[i-premier_capteur])+delimiteur
+            print('trame')
+            print(trame)
             capteur.power_down()# put the ADC n° i in sleep mode
             i+=1
         for n in range(0, nombre_point) :
@@ -150,43 +173,40 @@ while True:
             trame=label+delimiteur+str(tension)+delimiteur+w+delimiteur+trame
         else:
             trame=str(tension)+delimiteur+w+delimiteur+trame
+            print('trame')
+            print(trame)
         if debug:
             pycom.rgbled(c.blanc)
             time.sleep(c.delai_flash_mise_en_route)
         t2=time.time()
 
     if configuration=='TX': # On va émettre la trame LoRa par le TX, puis endormir le TX
-        if mode_lora== 'APB'              : #APB (on émet en mode crypté sans recevoir d'ACK de la part du récepteur qui est le RX ou la GW) ABP stands for Authentication By Personalisation.
-            print("APB Mode")
-            lora = LoRa(mode=LoRa.LORAWAN, region=LoRa.EU868)
-            lora.join(activation=LoRa.ABP, auth=(c.dev_addr,c.nwk_swkey, c.app_swkey))        # join a network using ABP (Activation By Personalization), Les clés ont été  fournies avant le joint par TTN (par ex).
-            s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)        # create a LoRa socket
-            s.setsockopt(socket.SOL_LORA, socket.SO_DR, data_rate)        # set the LoRaWAN data rate
-            s.setblocking(True)                # make the socket blocking
 
-        if mode_lora== 'OTAA'              : #  OTAA (mode complet mais, le plus lent, avec échange entre TX et récepteur)
-            lora = LoRa(mode=LoRa.LORAWAN, region=LoRa.EU868)
-            lora.join(activation=LoRa.OTAA, auth=(c.app_eui, c.app_key), timeout=0)        # join a network using OTAA (Over the Air Activation) needing a 'handshake' procedure to exchange the keys
 
-            while not lora.has_joined():                # wait until the module has joined the network
-                time.sleep(2.5)
-                print('Not yet joined...')
-            s = socket.socket(socket.AF_LORA, socket.SOCK_RAW)        # create a LoRa socket
-            s.setsockopt(socket.SOL_LORA, socket.SO_DR, 5)        # set the LoRaWAN data rate
-            s.setblocking(True)        # make the socket blocking       # (waits for the data to be sent and for the 2 receive windows to expire)
-        try:
-            print("emission")
-            time.sleep(c.delai_flash_mise_en_route)
-            s.send ("test") #trame
-            time.sleep(c.tempo_lora_emission)
-        except Exception as e:
-            print("exept")
-            #if e.errno == errno.EAGAIN:
-            if debug:
-                print('cannot send just yet, waiting...  ')
-                time.sleep(c.delai_flash_mise_en_route)
+        tension=int(tension*c.range/c.resolutionADC*c.coeff_pont_div /(nombre_point-2))#mesure de la tension Batterie du TX en mV
+        if mode_lora=='RAW' :
+            trame=label+delimiteur+str(tension)+delimiteur+w+delimiteur+trame
+        else:
+            trame=str(tension)+delimiteur+w+delimiteur
+            print('trame tension')
+            print(trame)
+
+
+
+        s.setblocking(True)        # make the socket blocking       # (waits for the data to be sent and for the 2 receive windows to expire)
+        print("emission")
+        time.sleep(c.delai_flash_mise_en_route)
+        print(trame)
+        #s.send(bytes([1, 2, 3]))
+        s.send (trame) #trame
+        time.sleep(c.tempo_lora_emission)
         s.setblocking(False)
+        print("Socket débloquée, réception de données si besoin")
+        # get any data received (if any...)
+        data = s.recv(64)
+        print(data)
         numero_trame+=1
+        print(numero_trame)
         pycom.rgbled(c.RED)                                             # flash rouge
         time.sleep (c.delai_flash_mise_en_route)
         if debug:
@@ -194,6 +214,7 @@ while True:
         #machine.deepsleep(c.sleep)                                     #eteint Lopy
 
     deltaT2=time.time()-t2 #temps écoulé depuis la dernière mesure locale
+    print(deltaT2)
     wdt.feed() # feeds  watchgdog
 
 print('FIN')
